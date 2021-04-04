@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "chalk": "^4.1.0",
+    "form-data": "^3.0.0",
     "node-fetch": "^2.6.1"
   },
   "peerDependencies": {

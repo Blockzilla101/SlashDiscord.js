@@ -474,21 +474,18 @@ export class SlashCommandHandler {
 	 * @param response The response this interaction should get.
 	 */
 	async respond(interactionID: string, tokenID: string, response: InteractionResponse) {
-
-		const res = {
-			type: InteractionResponseTable.to(response.type),
-			data: response.data
-		}
-
 		this.log('Responded to Interaction with type', response.type);
 
+		if (response.type === 'DeferredChannelMessageWithSource' || response.type === 'Pong') delete response.data
 		return await fetch(apiURL + `/interactions/${interactionID}/${tokenID}/callback`, {
 			method: 'POST',
 			headers: { ...this.headers, 'Content-Type': 'application/json'},
-			body: JSON.stringify(res)
+			body: JSON.stringify({
+				type: InteractionResponseTable.to(response.type),
+				data: response.data
+			})
 		})
 	}
-
 
 	/**
 	 * This is like console.log, except only gets logged when 

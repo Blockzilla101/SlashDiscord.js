@@ -5,6 +5,8 @@ import { InteractionMessage } from "./InteractionMessage";
 import { ApplicationCommandOption } from "./SlashCommand";
 import { apiURL } from "./SlashCommandHandler";
 import fetch from 'node-fetch';
+import FormData from "form-data";
+import fs from "fs";
 
 export type InteractionFunction = (interaction: Interaction) => any | Promise<any>;
 
@@ -53,6 +55,7 @@ export class Interaction implements IInteraction {
 	 * There can only be a maximum of 1 reply each interaction.
 	 */
 	reply_send: boolean = false;
+	deferred_reply: boolean = false;
 
 
 	constructor(client: Client, handler: SlashCommandHandler, channel: TextChannel, d: any) {
@@ -70,9 +73,9 @@ export class Interaction implements IInteraction {
 		this.token = d.token;
 	}
 
-	
+
 	/**
-	 * 
+	 *
 	 * @param option the desired option.
 	 * @returns {T | undefined | null}
 	 * 	Returns the type when found and the value is set.
@@ -83,14 +86,14 @@ export class Interaction implements IInteraction {
 		const optionSplitted = typeof option === 'string'
 			? option.split(' ')
 			: option;
-		
+
 		let options = this.data.options;
 		while(options != undefined) {
 			const option = options.find(o=>o.name.toLowerCase() === optionSplitted[0].toLowerCase());
 
 			if(!option)
 				return null;
-				
+
 			if(optionSplitted.length <= 1) {
 				return option.value;
 
@@ -110,7 +113,7 @@ export class Interaction implements IInteraction {
 	getOption<T = any>(option: string): InteractionOption<T> | undefined {
 		console.log(chalk.yellow('SlashDiscord.js ') + chalk.red('DeprecationWarning: Interaction.getOption(option) is deprecated, please use Interaction.option(option)'));
 		const optionSplitted = option.split(' ');
-		
+
 		let options = this.data.options;
 		while(options != undefined) {
 			const option = options.find(o=>o.name === optionSplitted[0]);
@@ -136,7 +139,7 @@ export class Interaction implements IInteraction {
 
 		if(!cmdOptions) return;
 		if(!options) return;
-		
+
 		await this._parseOptions(options, cmdOptions)
 	}
 
@@ -166,21 +169,19 @@ export class Interaction implements IInteraction {
 
 			//	Parsing embedded options
 
-			if(option.options && cmdOption.options) this._parseOptions(option.options, cmdOption.options);
+			if(option.options && cmdOption.options) await this._parseOptions(option.options, cmdOption.options);
 		}
 
 	}
 
 	/**
 	 * Close the interaction callback.
-	 * @param showSource to show the command message or not
 	 */
-	async pong(showSource: boolean = true) {
+	async pong() {
 		if(this.reply_send) throw new Error('Can only execute the callback once.');
-		this.reply_send = true;
-
+		this.reply_send = true
 		await this.handler.respond(this.id, this.token, {
-			type: showSource ? 'AcknowledgeWithSource' : 'Acknowledge'
+			type: 'Pong'
 		});
 	}
 
@@ -189,61 +190,64 @@ export class Interaction implements IInteraction {
 	 * Send a message back to the user, this is excluding source.
 	 * @param msg the message to send
 	 */
-	async send(...messages: InteractionMessageType[]) {
-		let id = '@original';
-		if(this.reply_send) {
-			const data = await fetch(apiURL + `/webhooks/${this.handler.clientID}/${this.token}`, {
-				method: 'POST',
-				headers: { ...this.handler.headers, 'Content-Type': 'application/json'},
-				body: JSON.stringify(Interaction.parseMessages(messages))
-			}).then(r=>r.json());
-			id = data.id
-;		}
-
-		else
-			await this.handler.respond(this.id, this.token, {
-				type: 'ChannelMessage',
-				data: Interaction.parseMessages(messages)
-			});
-
-		this.reply_send = true;
-		return new InteractionMessage(this, id);
+	async send(msg: InteractionMessageType) {
+		const data = await fetch(apiURL + `/webhooks/${this.handler.clientID}/${this.token}`, {
+			method: 'POST',
+			headers: { ...this.handler.headers, 'Content-Type': 'application/json'},
+			body: JSON.stringify(Interaction.parseMessages(msg))
+		}).then(r=>r.json());
+		return new InteractionMessage(this, data.id);
 	}
-
 
 	/**
 	 * Reply to a interaction, this is including source.
 	 * @param msg the message to send
+	 * @param {{ deferred: boolean } &| { ephemeral: boolean }} options the message to send
 	 */
-	async reply(...messages: InteractionMessageType[]) {
-		if(this.reply_send) return await this.send(...messages);
-		this.reply_send = true;
+	async reply(msg: InteractionMessageType, options = { deferred: false, ephemeral: false }) {
+		if (this.reply_send) return await this.send(msg)
+		this.reply_send = true
+		this.deferred_reply = options.deferred
 
 		await this.handler.respond(this.id, this.token, {
-			type: 'ChannelMessageWithSource',
-			data: Interaction.parseMessages(messages)
+			type: options.deferred ? 'DeferredChannelMessageWithSource' : 'ChannelMessageWithSource',
+			data: Object.assign(Interaction.parseMessages(msg), ( options.ephemeral ? { flags: 64 } : { } ))
 		});
-
 		return new InteractionMessage(this);
 	}
 
+	/**
+	 * Follow up message to the deferred reply
+	 * @param {WebhookMessageType} content
+	 */
+	async followUp(content: WebhookMessageType) {
+		if (typeof content === 'string') content = { content: content }
+		if (content instanceof MessageEmbed) content = { embeds: [content] }
+		if (content.file) {
+			let form = new FormData()
+			form.append('file', fs.createReadStream(content.file))
+			if (content.embeds || content.content) form.append('payload_json', JSON.stringify({ embeds: content.embeds ?? [], content: content.content ?? null }))
+			await fetch(apiURL + `/webhooks/${this.handler.clientID}/${this.token}/messages/@original`, {
+				method: 'PATCH',
+				headers: this.handler.headers,
+				body: form
+			})
+		} else {
+			await fetch(apiURL + `/webhooks/${this.handler.clientID}/${this.token}/messages/@original`, {
+				method: 'PATCH',
+				headers: { ...this.handler.headers, 'Content-Type': 'application/json'},
+				body: JSON.stringify(content)
+			})
+		}
+	}
 
 	/**
 	 * Parse the message to a InteractionCallbackData object
 	 */
-	static parseMessages(_messages: InteractionMessageType[]): InteractionCallbackData {
-		const messages: string[] = [];
-		const embeds: object[] = [];
-
-		for(const message of _messages) {
-			if(typeof message === 'string') messages.push(message);
-			else embeds.push(message.toJSON());
-		}
-
-		return {
-			content: messages.join(' '),
-			embeds: embeds
-		}
+	static parseMessages(msg: InteractionMessageType): InteractionCallbackData {
+		if (typeof msg === 'string') return { content: msg, embeds: [] }
+		if (msg instanceof MessageEmbed) return { embeds: [msg] }
+		return { embeds: msg }
 	}
 }
 
@@ -308,7 +312,12 @@ export interface InteractionOption<T = any> {
 	options?: InteractionOption[]
 }
 
-export type InteractionMessageType = string | MessageEmbed;
+export type InteractionMessageType = MessageEmbed | string | MessageEmbed[];
+export type WebhookMessageType = string | MessageEmbed | {
+	content?: string,
+	embeds?: MessageEmbed[],
+	file?: any
+};
 
 
 //
@@ -322,17 +331,16 @@ export interface InteractionResponse {
 }
 
 
-export type InteractionResponseType = 
+export type InteractionResponseType =
 	'Pong' |
-	'Acknowledge' |
-	'ChannelMessage' |
 	'ChannelMessageWithSource' |
-	'AcknowledgeWithSource'
+	'DeferredChannelMessageWithSource'
 ;
 
 
 export interface InteractionCallbackData {
 	tts?: boolean
-	content: string
-	embeds?: object[]
+	content?: string
+	embeds?: object[],
+	flags?: number
 }
