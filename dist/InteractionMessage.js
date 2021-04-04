@@ -12,7 +12,7 @@ class InteractionMessage {
         this.interaction = interaction;
         this.id = id;
     }
-    async edit(...messages) {
+    async edit(messages) {
         await node_fetch_1.default(SlashCommandHandler_1.apiURL + `/webhooks/${this.interaction.handler.clientID}/${this.interaction.token}/messages/${this.id}`, {
             method: 'PATCH',
             headers: Object.assign(Object.assign({}, this.interaction.handler.headers), { 'Content-Type': 'application/json' }),

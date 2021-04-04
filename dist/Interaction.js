@@ -9,9 +9,12 @@ const discord_js_1 = require("discord.js");
 const InteractionMessage_1 = require("./InteractionMessage");
 const SlashCommandHandler_1 = require("./SlashCommandHandler");
 const node_fetch_1 = __importDefault(require("node-fetch"));
+const form_data_1 = __importDefault(require("form-data"));
+const fs_1 = __importDefault(require("fs"));
 class Interaction {
     constructor(client, handler, channel, d) {
         this.reply_send = false;
+        this.deferred_reply = false;
         this.id = d.id;
         this.type = d.type;
         this.data = d.data;
@@ -81,58 +84,67 @@ class Interaction {
                     break;
             }
             if (option.options && cmdOption.options)
-                this._parseOptions(option.options, cmdOption.options);
+                await this._parseOptions(option.options, cmdOption.options);
         }
     }
-    async pong(showSource = true) {
+    async pong() {
         if (this.reply_send)
             throw new Error('Can only execute the callback once.');
         this.reply_send = true;
         await this.handler.respond(this.id, this.token, {
-            type: showSource ? 'AcknowledgeWithSource' : 'Acknowledge'
+            type: 'Pong'
         });
     }
-    async send(...messages) {
-        let id = '@original';
-        if (this.reply_send) {
-            const data = await node_fetch_1.default(SlashCommandHandler_1.apiURL + `/webhooks/${this.handler.clientID}/${this.token}`, {
-                method: 'POST',
-                headers: Object.assign(Object.assign({}, this.handler.headers), { 'Content-Type': 'application/json' }),
-                body: JSON.stringify(Interaction.parseMessages(messages))
-            }).then(r => r.json());
-            id = data.id;
-        }
-        else
-            await this.handler.respond(this.id, this.token, {
-                type: 'ChannelMessage',
-                data: Interaction.parseMessages(messages)
-            });
-        this.reply_send = true;
-        return new InteractionMessage_1.InteractionMessage(this, id);
+    async send(msg) {
+        const data = await node_fetch_1.default(SlashCommandHandler_1.apiURL + `/webhooks/${this.handler.clientID}/${this.token}`, {
+            method: 'POST',
+            headers: Object.assign(Object.assign({}, this.handler.headers), { 'Content-Type': 'application/json' }),
+            body: JSON.stringify(Interaction.parseMessages(msg))
+        }).then(r => r.json());
+        return new InteractionMessage_1.InteractionMessage(this, data.id);
     }
-    async reply(...messages) {
+    async reply(msg, options = { deferred: false, ephemeral: false }) {
         if (this.reply_send)
-            return await this.send(...messages);
+            return await this.send(msg);
         this.reply_send = true;
+        this.deferred_reply = options.deferred;
         await this.handler.respond(this.id, this.token, {
-            type: 'ChannelMessageWithSource',
-            data: Interaction.parseMessages(messages)
+            type: options.deferred ? 'DeferredChannelMessageWithSource' : 'ChannelMessageWithSource',
+            data: Object.assign(Interaction.parseMessages(msg), (options.ephemeral ? { flags: 64 } : {}))
         });
         return new InteractionMessage_1.InteractionMessage(this);
     }
-    static parseMessages(_messages) {
-        const messages = [];
-        const embeds = [];
-        for (const message of _messages) {
-            if (typeof message === 'string')
-                messages.push(message);
-            else
-                embeds.push(message.toJSON());
+    async followUp(content) {
+        var _a, _b;
+        if (typeof content === 'string')
+            content = { content: content };
+        if (content instanceof discord_js_1.MessageEmbed)
+            content = { embeds: [content] };
+        if (content.file) {
+            let form = new form_data_1.default();
+            form.append('file', fs_1.default.createReadStream(content.file));
+            if (content.embeds || content.content)
+                form.append('payload_json', JSON.stringify({ embeds: (_a = content.embeds) !== null && _a !== void 0 ? _a : [], content: (_b = content.content) !== null && _b !== void 0 ? _b : null }));
+            await node_fetch_1.default(SlashCommandHandler_1.apiURL + `/webhooks/${this.handler.clientID}/${this.token}/messages/@original`, {
+                method: 'PATCH',
+                headers: this.handler.headers,
+                body: form
+            });
         }
-        return {
-            content: messages.join(' '),
-            embeds: embeds
-        };
+        else {
+            await node_fetch_1.default(SlashCommandHandler_1.apiURL + `/webhooks/${this.handler.clientID}/${this.token}/messages/@original`, {
+                method: 'PATCH',
+                headers: Object.assign(Object.assign({}, this.handler.headers), { 'Content-Type': 'application/json' }),
+                body: JSON.stringify(content)
+            });
+        }
+    }
+    static parseMessages(msg) {
+        if (typeof msg === 'string')
+            return { content: msg, embeds: [] };
+        if (msg instanceof discord_js_1.MessageEmbed)
+            return { embeds: [msg] };
+        return { embeds: msg };
     }
 }
 exports.Interaction = Interaction;

@@ -31,8 +31,7 @@ class SlashGuild {
             throw new Error('Didn\'t recieve any commands');
         this.handler.log(`Recieved ${commands.length} command`, commands.lengt > 1 ? 's' : '');
         const foundCommands = [];
-        for (const i in commands) {
-            const command = commands[i];
+        for (const command of commands) {
             const registeredCommand = this.commandData.get(command.name);
             if (!registeredCommand) {
                 if (this.handler.deleteUnregisteredCommands

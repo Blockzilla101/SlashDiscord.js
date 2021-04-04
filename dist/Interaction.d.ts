@@ -13,15 +13,20 @@ export declare class Interaction implements IInteraction {
     handler: SlashCommandHandler;
     token: string;
     reply_send: boolean;
+    deferred_reply: boolean;
     constructor(client: Client, handler: SlashCommandHandler, channel: TextChannel, d: any);
     option<T = any>(option: string | string[]): T | undefined | null;
     getOption<T = any>(option: string): InteractionOption<T> | undefined;
     parseOptions(command: SlashCommand): Promise<void>;
     private _parseOptions;
-    pong(showSource?: boolean): Promise<void>;
-    send(...messages: InteractionMessageType[]): Promise<InteractionMessage>;
-    reply(...messages: InteractionMessageType[]): Promise<InteractionMessage>;
-    static parseMessages(_messages: InteractionMessageType[]): InteractionCallbackData;
+    pong(): Promise<void>;
+    send(msg: InteractionMessageType): Promise<InteractionMessage>;
+    reply(msg: InteractionMessageType, options?: {
+        deferred: boolean;
+        ephemeral: boolean;
+    }): Promise<InteractionMessage>;
+    followUp(content: WebhookMessageType): Promise<void>;
+    static parseMessages(msg: InteractionMessageType): InteractionCallbackData;
 }
 export interface IInteraction {
     id: string;
@@ -42,14 +47,20 @@ export interface InteractionOption<T = any> {
     value?: T;
     options?: InteractionOption[];
 }
-export declare type InteractionMessageType = string | MessageEmbed;
+export declare type InteractionMessageType = MessageEmbed | string | MessageEmbed[];
+export declare type WebhookMessageType = string | MessageEmbed | {
+    content?: string;
+    embeds?: MessageEmbed[];
+    file?: any;
+};
 export interface InteractionResponse {
     type: InteractionResponseType;
     data?: InteractionCallbackData;
 }
-export declare type InteractionResponseType = 'Pong' | 'Acknowledge' | 'ChannelMessage' | 'ChannelMessageWithSource' | 'AcknowledgeWithSource';
+export declare type InteractionResponseType = 'Pong' | 'ChannelMessageWithSource' | 'DeferredChannelMessageWithSource';
 export interface InteractionCallbackData {
     tts?: boolean;
-    content: string;
+    content?: string;
     embeds?: object[];
+    flags?: number;
 }

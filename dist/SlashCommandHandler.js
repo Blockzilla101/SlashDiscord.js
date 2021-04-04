@@ -74,8 +74,7 @@ class SlashCommandHandler {
             throw new Error('Didn\'t recieve any commands');
         this.log(`Recieved ${commands.length} command`, commands.lengt > 1 ? 's' : '');
         const foundCommands = [];
-        for (const i in commands) {
-            const command = commands[i];
+        for (const command of commands) {
             const registeredCommand = this.commandData.get(command.name);
             if (!registeredCommand) {
                 if (this.deleteUnregisteredCommands
@@ -177,15 +176,16 @@ class SlashCommandHandler {
         return this.guilds.get(guildID);
     }
     async respond(interactionID, tokenID, response) {
-        const res = {
-            type: InteractionResponseType_1.default.to(response.type),
-            data: response.data
-        };
         this.log('Responded to Interaction with type', response.type);
+        if (response.type === 'DeferredChannelMessageWithSource' || response.type === 'Pong')
+            delete response.data;
         return await node_fetch_1.default(exports.apiURL + `/interactions/${interactionID}/${tokenID}/callback`, {
             method: 'POST',
             headers: Object.assign(Object.assign({}, this.headers), { 'Content-Type': 'application/json' }),
-            body: JSON.stringify(res)
+            body: JSON.stringify({
+                type: InteractionResponseType_1.default.to(response.type),
+                data: response.data
+            })
         });
     }
     log(msg, ...optionalParams) {
